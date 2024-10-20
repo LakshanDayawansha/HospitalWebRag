@@ -104,51 +104,89 @@
   </div>
 
   <script>
-    const chatMessages = document.getElementById('chat-messages');
-    const chatForm = document.getElementById('chat-form');
-    const userInput = document.getElementById('user-input');
+     const chatMessages = document.getElementById('chat-messages');
+        const chatForm = document.getElementById('chat-form');
+        const userInput = document.getElementById('user-input');
+        
+        // Generate a random client ID (you might want to use a more robust method)
+        const clientId = Math.random().toString(36).substring(7);
+        
+        // Create WebSocket connection
+        const ws = new WebSocket(`ws://localhost:8000/ws/${clientId}`);
+        
+        // Connection opened
+        ws.addEventListener('open', (event) => {
+            console.log('Connected to WebSocket server');
+            addSystemMessage('Connected to chat server');
+        });
 
-    function addMessage(content, isUser = false) {
-      const messageDiv = document.createElement('div');
-      messageDiv.classList.add('message');
-      messageDiv.classList.add(isUser ? 'user-message' : 'bot-message');
-      messageDiv.textContent = content;
-      chatMessages.appendChild(messageDiv);
-      chatMessages.scrollTop = chatMessages.scrollHeight;
-    }
+        // Listen for messages from the server
+        ws.addEventListener('message', (event) => {
+            const data = JSON.parse(event.data);
+            addMessage(data.message, false);
+        });
 
-    chatForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const query = userInput.value;
-      const userId = "1234";
-      if (query) {
-        addMessage(query, true);
-        userInput.value = '';
+        // Connection closed
+        ws.addEventListener('close', (event) => {
+            console.log('Disconnected from WebSocket server');
+            addSystemMessage('Disconnected from chat server. Trying to reconnect...');
+            // Implement reconnection logic here
+            setTimeout(connectWebSocket, 3000);
+        });
 
-        try {
-          const response = await fetch('http://127.0.0.1:8000/chat', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ message: query, userId: userId})
-          });
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
+        // Connection error
+        ws.addEventListener('error', (error) => {
+            console.error('WebSocket error:', error);
+            addSystemMessage('Error connecting to chat server');
+        });
 
-          const botResponse = await response.json();
-          addMessage(botResponse.response.message);
-          console.log(botResponse);
-          
-          
-        } catch (error) {
-          console.error('Error:', error);
-          alert('An error occurred while sending the message. Please try again.');
+        function addMessage(content, isUser = false) {
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('message');
+            messageDiv.classList.add(isUser ? 'user-message' : 'bot-message');
+            messageDiv.textContent = content;
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
-      }
-    });
+        function addSystemMessage(content) {
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('message', 'system-message');
+            messageDiv.style.color = '#666';
+            messageDiv.style.textAlign = 'center';
+            messageDiv.style.fontStyle = 'italic';
+            messageDiv.textContent = content;
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        chatForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const message = userInput.value.trim();
+            
+            if (message && ws.readyState === WebSocket.OPEN) {
+                // Send message to server
+                ws.send(JSON.stringify({
+                    message: message,
+                    userId: clientId
+                }));
+                
+                // Add message to chat
+                addMessage(message, true);
+                userInput.value = '';
+            } else if (ws.readyState !== WebSocket.OPEN) {
+                addSystemMessage('Not connected to server. Please wait...');
+            }
+        });
+
+        // Reconnection logic
+        function connectWebSocket() {
+            if (ws.readyState === WebSocket.CLOSED) {
+                const newWs = new WebSocket(`ws://localhost:8000/ws/${clientId}`);
+                // Transfer event listeners to new connection
+                // ... implement reconnection logic
+            }
+        }
 
   </script>
 </body>

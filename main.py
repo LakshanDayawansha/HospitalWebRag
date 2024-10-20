@@ -1,39 +1,57 @@
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
-from pydantic import BaseModel
+from typing import Dict
+import json
 import os
+from dotenv import load_dotenv
 
+# Import your existing LangChain imports
 from langchain.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_chroma import Chroma
 from langchain_community.chat_message_histories import ChatMessageHistory
-from langchain_community.document_loaders import WebBaseLoader
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.runnables.history import RunnableWithMessageHistory,RunnableLambda
-from langchain_google_genai import GoogleGenerativeAI,GoogleGenerativeAIEmbeddings
+from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain_google_genai import GoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: Dict[str, WebSocket] = {}
+
+    async def connect(self, websocket: WebSocket, client_id: str):
+        await websocket.accept()
+        self.active_connections[client_id] = websocket
+
+    def disconnect(self, client_id: str):
+        if client_id in self.active_connections:
+            del self.active_connections[client_id]
+
+    async def send_message(self, message: str, client_id: str):
+        if client_id in self.active_connections:
+            await self.active_connections[client_id].send_json({
+                "message": message,
+                "type": "bot_message"
+            })
 
 app = FastAPI()
+manager = ConnectionManager()
 
+# Your existing CORS middleware and environment setup
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-class ChatInput(BaseModel):
-    message: str
-    userId: str 
-
-
+# Your existing LangChain setup code here
 load_dotenv()
+# ... (keep all your existing chain setup code)
+
 api_key=os.getenv("API_KEY")
-db_path="D:\\subject projects\\RAG\\database"
+db_path="./database"
 collection_name="hospital_documents_langchain"
 
 
@@ -87,6 +105,7 @@ qa_system_prompt = """You are a friendly customer service agent working for Hori
             - If the information doesn't directly address the question, acknowledge that politely and offer a general response if appropriate.
             - Avoid making up answers if the data does not apply. It's better to admit that the information is not available than to provide inaccurate information and mention to contact hospital via phone.
             -Make sure to greet in first message. After that it is not nessasary to greet again.
+            -avoid use emojies when answering.
             
             Context: {context}
 
@@ -123,25 +142,39 @@ conversational_rag_chain = RunnableWithMessageHistory(
     output_messages_key="answer",
 )
 
-@app.post("/chat")
-async def get_response(chat_input: ChatInput):
-    query = chat_input.message
-    session_id = chat_input.userId
-    result = conversational_rag_chain.invoke(
-        {"input": query},
-        config={
-            "configurable": {"session_id": session_id}
-        }
-    )["answer"]
-    
-    return {"response": {"message": result}}
 
+@app.websocket("/ws/{client_id}")
+async def websocket_endpoint(websocket: WebSocket, client_id: str):
+    await manager.connect(websocket, client_id)
+    try:
+        while True:
+            # Receive message from client
+            data = await websocket.receive_text()
+            message_data = json.loads(data)
+            
+            # Process message using your existing RAG chain
+            result = conversational_rag_chain.invoke(
+                {"input": message_data["message"]},
+                config={
+                    "configurable": {"session_id": client_id}
+                }
+            )["answer"]
+            
+            # Send response back to client
+            await manager.send_message(result, client_id)
+            
+    except WebSocketDisconnect:
+        manager.disconnect(client_id)
+    except Exception as e:
+        print(f"Error processing message: {e}")
+        await manager.send_message(f"An error occurred: {str(e)}", client_id)
+
+# Keep your existing HTTP endpoint as fallback
 @app.get("/")
 async def root():
-    return {"message": "Welcome to the Chatbot API. Send POST requests to /chat to interact with the bot."}
+    return {"message": "WebSocket Chat Server"}
 
-    
 if __name__ == "__main__":
     import uvicorn
-    print("Starting server... Please wait until you see 'Application startup complete' message.")
-    uvicorn.run(app)
+    print("Starting WebSocket server... Please wait until you see 'Application startup complete' message.")
+    uvicorn.run(app, host="0.0.0.0", port=8000)
