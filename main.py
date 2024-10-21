@@ -5,7 +5,7 @@ import json
 import os
 from dotenv import load_dotenv
 
-# Import your existing LangChain imports
+
 from langchain.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_chroma import Chroma
@@ -15,6 +15,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_google_genai import GoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 
+# websocket manager
 class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, WebSocket] = {}
@@ -37,7 +38,7 @@ class ConnectionManager:
 app = FastAPI()
 manager = ConnectionManager()
 
-# Your existing CORS middleware and environment setup
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -46,16 +47,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Your existing LangChain setup code here
+
 load_dotenv()
-# ... (keep all your existing chain setup code)
+
 
 api_key=os.getenv("API_KEY")
 db_path="./database"
 collection_name="hospital_documents_langchain"
 
 
-    
+# Initialize LLM    
 llm = GoogleGenerativeAI(
             model="gemini-1.5-flash",
             google_api_key=api_key,
@@ -142,7 +143,7 @@ conversational_rag_chain = RunnableWithMessageHistory(
     output_messages_key="answer",
 )
 
-
+## Websocket endpoint
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
     await manager.connect(websocket, client_id)
@@ -169,7 +170,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         print(f"Error processing message: {e}")
         await manager.send_message(f"An error occurred: {str(e)}", client_id)
 
-# Keep your existing HTTP endpoint as fallback
+## Routes
 @app.get("/")
 async def root():
     return {"message": "WebSocket Chat Server"}
