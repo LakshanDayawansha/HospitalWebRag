@@ -177,5 +177,5 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    print("Starting WebSocket server... Please wait until you see 'Application startup complete' message.")
+    print("Starting WebSocket server... ")
     uvicorn.run(app, host="0.0.0.0", port=8000)
